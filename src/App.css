@@ -1,0 +1,27 @@
+.viewport {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  touch-action: none;
+}
+
+.canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.text-box {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.text-box:focus-within {
+  border-color: rgba(0, 0, 0, 0.18);
+  box-shadow: none;
+}

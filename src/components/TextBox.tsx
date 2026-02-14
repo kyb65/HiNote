@@ -128,6 +128,10 @@ export function TextBox({
   );
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) {
+      e.preventDefault();
+      return;
+    }
     e.stopPropagation();
   };
 

@@ -25,15 +25,14 @@ export default function App() {
   const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const [spacePressed, setSpacePressed] = useState(false);
 
+  /** 보이는 화면(visual viewport) 중심 기준으로 캔버스 좌표 계산. 문서가 가로 스크롤되더라도 clientX/Y는 보이는 영역 기준이므로, center도 보이는 영역 크기로 써야 함. */
   const screenToCanvas = useCallback(
     (screenX: number, screenY: number) => {
-      const el = viewportRef.current;
-      if (!el) return { x: 0, y: 0 };
-      const rect = el.getBoundingClientRect();
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      const x = (screenX - rect.left - centerX - view.panX) / view.scale;
-      const y = (screenY - rect.top - centerY - view.panY) / view.scale;
+      const { panX, panY, scale } = view;
+      const centerX = typeof window !== "undefined" ? window.innerWidth / 2 : 0;
+      const centerY = typeof window !== "undefined" ? window.innerHeight / 2 : 0;
+      const x = (screenX - centerX - panX) / scale;
+      const y = (screenY - centerY - panY) / scale;
       return { x, y };
     },
     [view.panX, view.panY, view.scale]
@@ -42,13 +41,10 @@ export default function App() {
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault();
-      const el = viewportRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
+      const centerX = typeof window !== "undefined" ? window.innerWidth / 2 : 0;
+      const centerY = typeof window !== "undefined" ? window.innerHeight / 2 : 0;
+      const mouseX = e.clientX;
+      const mouseY = e.clientY;
       const delta = e.deltaY > 0 ? -SCALE_STEP : SCALE_STEP;
       setView((prev) => {
         const newScale = Math.min(
@@ -72,7 +68,8 @@ export default function App() {
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (spacePressed) {
+      const isMiddleButton = e.button === 1;
+      if (spacePressed || isMiddleButton) {
         setIsPanning(true);
         panStartRef.current = {
           x: e.clientX,
@@ -80,8 +77,12 @@ export default function App() {
           panX: view.panX,
           panY: view.panY,
         };
+        if (isMiddleButton && e.currentTarget instanceof HTMLElement) {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }
         return;
       }
+      if (e.button !== 0) return;
       const target = e.target as HTMLElement;
       if (target.closest("[data-text-box]")) return;
       const { x, y } = screenToCanvas(e.clientX, e.clientY);

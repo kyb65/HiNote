@@ -1,4 +1,4 @@
-import { useCallback, useRef, useLayoutEffect } from "react";
+import { useCallback, useRef, useLayoutEffect, useEffect } from "react";
 import type { TextBoxObject } from "../types";
 
 interface TextBoxProps {
@@ -10,6 +10,8 @@ interface TextBoxProps {
   onDelete?: () => void;
   /** 방금 생성된 박스는 blur 시 바로 삭제하지 않음 */
   isNewlyCreated?: boolean;
+  /** 입력 중 박스가 화면 밖으로 나가면 캐럿이 보이도록 자동 패닝 요청 (화면 좌표 rect 전달) */
+  onPanToShowCaret?: (screenRect: { left: number; top: number; right: number; bottom: number }) => void;
 }
 
 const BASE_FONT_SIZE = 16;
@@ -33,7 +35,9 @@ export function TextBox({
   onUpdate,
   onDelete,
   isNewlyCreated = false,
+  onPanToShowCaret,
 }: TextBoxProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);
@@ -65,7 +69,6 @@ export function TextBox({
   }, [object.text, onDelete, isNewlyCreated]);
 
   const adjustHeight = useCallback(() => {
-    if (isComposingRef.current) return;
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "0px";
@@ -85,33 +88,80 @@ export function TextBox({
     return screenW / scale + 2;
   }, [scale]);
 
-  const adjustWidth = useCallback(() => {
-    const mirror = measureRef.current;
-    const el = inputRef.current;
-    if (!mirror || !el) return;
-    const minW = getMinWidthCanvasPx();
-    const text = object.text || " ";
-    mirror.style.fontSize = `${BASE_FONT_SIZE}px`;
-    mirror.style.fontFamily = getComputedStyle(el).fontFamily;
-    mirror.style.fontWeight = getComputedStyle(el).fontWeight;
-    mirror.textContent = text;
-    const screenW = mirror.getBoundingClientRect().width;
-    const wCanvas = screenW / scale + 2;
-    el.style.width = `${Math.max(wCanvas, minW)}px`;
-  }, [object.text, scale, getMinWidthCanvasPx]);
+  /** @param liveText 입력 시점의 실제 문자열(조합 중이면 textarea 값 전달). 없으면 object.text 사용 */
+  const adjustWidth = useCallback(
+    (liveText?: string) => {
+      const mirror = measureRef.current;
+      const el = inputRef.current;
+      if (!mirror || !el) return;
+      const minW = getMinWidthCanvasPx();
+      const text =
+        liveText !== undefined
+          ? liveText || " "
+          : (object.text || " ");
+      mirror.style.fontSize = `${BASE_FONT_SIZE}px`;
+      mirror.style.fontFamily = getComputedStyle(el).fontFamily;
+      mirror.style.fontWeight = getComputedStyle(el).fontWeight;
+      mirror.textContent = text;
+      const screenW = mirror.getBoundingClientRect().width;
+      const wCanvas = screenW / scale + 2;
+      el.style.width = `${Math.max(wCanvas, minW)}px`;
+    },
+    [object.text, scale, getMinWidthCanvasPx]
+  );
 
   useLayoutEffect(() => {
-    if (isComposingRef.current) return;
     const raf = requestAnimationFrame(() => {
-      if (isComposingRef.current) return;
       adjustHeight();
-      adjustWidth();
+      if (!isComposingRef.current) {
+        adjustWidth();
+      }
       if (pendingAdjustAfterCompositionRef.current) {
         pendingAdjustAfterCompositionRef.current = false;
       }
+      if (object.text.length > 0) {
+        const r = wrapperRef.current?.getBoundingClientRect();
+        if (r && onPanToShowCaret)
+          onPanToShowCaret({
+            left: r.left,
+            top: r.top,
+            right: r.right,
+            bottom: r.bottom,
+          });
+      }
     });
     return () => cancelAnimationFrame(raf);
-  }, [object.text, scale, adjustHeight, adjustWidth]);
+  }, [object.text, scale, adjustHeight, adjustWidth, onPanToShowCaret]);
+
+  /** 음절/문자 단위로 height·width 정규화: input 이벤트는 조합 중에도 매 음절마다 발생함 */
+  const rafInputRef = useRef<number | null>(null);
+  const handleInput = useCallback(
+    (e: React.FormEvent<HTMLTextAreaElement>) => {
+      const liveText = (e.target as HTMLTextAreaElement).value;
+      if (rafInputRef.current != null) cancelAnimationFrame(rafInputRef.current);
+      rafInputRef.current = requestAnimationFrame(() => {
+        rafInputRef.current = null;
+        adjustHeight();
+        adjustWidth(liveText);
+        if (liveText.length > 0) {
+          const r = wrapperRef.current?.getBoundingClientRect();
+          if (r && onPanToShowCaret)
+            onPanToShowCaret({
+              left: r.left,
+              top: r.top,
+              right: r.right,
+              bottom: r.bottom,
+            });
+        }
+      });
+    },
+    [adjustHeight, adjustWidth, onPanToShowCaret]
+  );
+  useEffect(() => {
+    return () => {
+      if (rafInputRef.current != null) cancelAnimationFrame(rafInputRef.current);
+    };
+  }, []);
 
   const handleCompositionStart = useCallback(() => {
     isComposingRef.current = true;
@@ -137,6 +187,7 @@ export function TextBox({
 
   return (
     <div
+      ref={wrapperRef}
       data-text-box
       className="text-box"
       style={{
@@ -166,6 +217,7 @@ export function TextBox({
         ref={inputRef}
         value={object.text}
         onChange={handleChange}
+        onInput={handleInput}
         onBlur={handleBlur}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
